@@ -9,8 +9,6 @@ Server::Server (int portNumber)
 {
 	port = portNumber;
 	int yes = 1;
-	FD_ZERO(&master);
-	FD_ZERO(&read_fds);
 
 	if ((sockfd = socket(PF_INET, SOCK_STREAM, 0)) == -1)
 		throw std::runtime_error("Could not create socket");
@@ -27,6 +25,8 @@ Server::Server (int portNumber)
 	if (listen(sockfd, 10) == -1)
 		throw std::runtime_error("Could not start listening");
 
+	FD_ZERO(&master);
+	FD_ZERO(&read_fds);
 	FD_SET(sockfd, &master);
 	fdmax = sockfd;
 
@@ -50,33 +50,37 @@ void Server::run()
 		read_fds = master; 
 		if (select(fdmax+1, &read_fds, NULL, NULL, NULL) == -1)
 			throw std::runtime_error("Could not poll for incoming connections (select)");
-		for(i = 0; i <= fdmax; i++) {
-			if (FD_ISSET(i, &read_fds)) { // we got one!!
-				if (i == sockfd) {
+		for(i = 0; i <= fdmax; i++) 
+		{
+			if (FD_ISSET(i, &read_fds)) 
+			{ 
+				if (i == sockfd)
+			   	{
 					addrlen = sizeof(cli_addr);
 					if ((new_fd = accept(sockfd, (struct sockaddr *)&cli_addr, (unsigned int*)&addrlen)) == -1) 
 						throw std::runtime_error("Could not accept new connection");
-							else 
-							{
-								FD_SET(new_fd, &master); // add to master set
-								if (new_fd > fdmax)
-									fdmax = new_fd;
-								printf("selectserver: new connection from %s on " "socket %d\n", inet_ntoa(cli_addr.sin_addr), new_fd);
-							}
+					else 
+					{
+						FD_SET(new_fd, &master);
+						if (new_fd > fdmax)
+							fdmax = new_fd;
+						printf("selectserver: new connection from %s on " "socket %d\n", inet_ntoa(cli_addr.sin_addr), new_fd);
+						continue;
+					}
 				}
 				if ((nbytes = recv(i, buffer, sizeof(buffer), 0)) <= 0) 
 				{
 					if (nbytes == 0)
 						printf("selectserver: socket %d hung up\n", i);
 					else
-						throw std::runtime_error("Could not receive correctly");
+						throw std::runtime_error(strerror(errno));
 					close(i);
 					FD_CLR(i, &master);
 				}
 				else
 					for(j = 0; j <= fdmax; j++)
 						if (FD_ISSET(j, &master) && (j != sockfd && j != i) && (send(j, buffer, nbytes, 0) == -1))
-									throw std::runtime_error("Could not send data to client");
+							throw std::runtime_error("Could not send data to client");
 			}
 		}
 	}

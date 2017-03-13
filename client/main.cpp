@@ -1,6 +1,8 @@
 #include "Client.hpp"
+#include <iostream>
 
 using namespace protei_chat;
+using namespace std;
 
 int main(int argc, char* argv[])
 {
@@ -12,5 +14,13 @@ int main(int argc, char* argv[])
 	
 	Client c(argv[1], atoi(argv[2]));
 
-	c.launch();
+	try
+	{
+		c.Launch();
+	}
+	catch (exception& e)
+	{
+		cout << "Exception occured. Exception's Message: " << e.what() << endl;
+		exit(1);
+	}
 }

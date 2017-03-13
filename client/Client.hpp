@@ -14,15 +14,23 @@ namespace protei_chat
 class Client
 {
 public:
+	Client(char* hostName, int portNumber);
+
+	void Launch();
+
+	~Client();
+private:
+	void StartMsgLoop();
+	void CheckForData();
+	void SendMsg();
+	void ReceiveMsg();
+
 	static const int MAX_MSG_SIZE = 2048;
 
-	Client (char* hostName, int portNumber);
-
-	void launch();
-private:
-	int sockfd, numbytes;  
-	char buf[MAX_MSG_SIZE];
-	struct hostent *he;
-	struct sockaddr_in their_addr;
+	int connectionSocket;  
+	char msgBuffer[MAX_MSG_SIZE];
+	struct hostent * hostEntity;
+	struct sockaddr_in serverAddr;
+	fd_set fileDescs;
 };
 }
