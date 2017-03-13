@@ -1,3 +1,4 @@
+#include <cstdio>
 #include "Client.hpp"
 #include <iostream>
 
