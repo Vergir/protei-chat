@@ -75,8 +75,16 @@ void Client::ReceiveMsg()
 	int bytesReceived;
 	if ((bytesReceived = recv(connectionSocket, msgBuffer, MAX_MSG_SIZE-1, 0)) == -1)
 		throw std::runtime_error("Couldn't receive message from server");
-	msgBuffer[bytesReceived] = '\0';
-	std::cout << msgBuffer << std::endl;
+	if (bytesReceived > 0)
+	{
+		msgBuffer[bytesReceived] = '\0';
+		std::cout << msgBuffer << std::endl;
+	}
+	else
+	{
+		std::cout << "Server Shutdown" << std::endl;
+		exit(0);
+	}
 }
 
 }

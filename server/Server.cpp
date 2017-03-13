@@ -1,3 +1,4 @@
+#include <sstream>
 #include <iostream>
 #include <stdexcept>
 #include <sys/wait.h>
@@ -10,79 +11,95 @@ Server::Server (int portNumber)
 	port = portNumber;
 	int yes = 1;
 
-	if ((sockfd = socket(PF_INET, SOCK_STREAM, 0)) == -1)
+	if ((listeningSocket = socket(PF_INET, SOCK_STREAM, 0)) == -1)
 		throw std::runtime_error("Could not create socket");
-	if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) == -1)
+	if (setsockopt(listeningSocket, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) == -1)
 		throw std::runtime_error("Could not Make socket reuse address");
 
-	serv_addr.sin_family = AF_INET;
-	serv_addr.sin_port = htons(port);
-	serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-	memset(&(serv_addr.sin_zero), '\0', 8);
+	serverAddr.sin_family = AF_INET;
+	serverAddr.sin_port = htons(port);
+	serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+	memset(&(serverAddr.sin_zero), '\0', 8);
 
-	if (bind(sockfd, (struct sockaddr *)&serv_addr, sizeof(struct sockaddr)) == -1)
+	if (bind(listeningSocket, (struct sockaddr *)&serverAddr, sizeof(struct sockaddr)) == -1)
 		std::runtime_error("Could not bind socket to port");
-	if (listen(sockfd, 10) == -1)
+	if (listen(listeningSocket, MAX_CLIENTS) == -1)
 		throw std::runtime_error("Could not start listening");
 
-	FD_ZERO(&master);
-	FD_ZERO(&read_fds);
-	FD_SET(sockfd, &master);
-	fdmax = sockfd;
-
-	sa.sa_handler = sigchld_handler;
-	sigemptyset(&sa.sa_mask);
-	sa.sa_flags = SA_RESTART;
-	if (sigaction(SIGCHLD, &sa, NULL) == -1)
-		throw std::runtime_error("Could not estabilish child-process' killing");
+	FD_ZERO(&cleanFileDescs);
+	FD_ZERO(&dirtyFileDescs);
+	FD_SET(listeningSocket, &cleanFileDescs);
+	maxFileDesc = listeningSocket;
 }
 
-void Server::sigchld_handler(int s)
+void Server::Run()
 {
-	while (wait(NULL) > 0);
-}
-
-void Server::run()
-{
-	int i, j, nbytes, addrlen;
 	std::cout << "Server launched on port " << port << std::endl;
-	for(;;) {
-		read_fds = master; 
-		if (select(fdmax+1, &read_fds, NULL, NULL, NULL) == -1)
-			throw std::runtime_error("Could not poll for incoming connections (select)");
-		for(i = 0; i <= fdmax; i++) 
-		{
-			if (FD_ISSET(i, &read_fds)) 
-			{ 
-				if (i == sockfd)
-			   	{
-					addrlen = sizeof(cli_addr);
-					if ((new_fd = accept(sockfd, (struct sockaddr *)&cli_addr, (unsigned int*)&addrlen)) == -1) 
-						throw std::runtime_error("Could not accept new connection");
-					else 
-					{
-						FD_SET(new_fd, &master);
-						if (new_fd > fdmax)
-							fdmax = new_fd;
-						printf("selectserver: new connection from %s on " "socket %d\n", inet_ntoa(cli_addr.sin_addr), new_fd);
-						continue;
-					}
-				}
-				if ((nbytes = recv(i, buffer, sizeof(buffer), 0)) <= 0) 
-				{
-					if (nbytes == 0)
-						printf("selectserver: socket %d hung up\n", i);
-					else
-						throw std::runtime_error(strerror(errno));
-					close(i);
-					FD_CLR(i, &master);
-				}
+	StartMsgLoop();
+}
+
+void Server::StartMsgLoop()
+{
+	while(1)
+   	{
+		CheckSockets();
+
+		for(int i = 0; i <= maxFileDesc; i++) 
+			if (FD_ISSET(i, &dirtyFileDescs)) 
+			{
+				if (i == listeningSocket)
+					AcceptNewClient();
 				else
-					for(j = 0; j <= fdmax; j++)
-						if (FD_ISSET(j, &master) && (j != sockfd && j != i) && (send(j, buffer, nbytes, 0) == -1))
-							throw std::runtime_error("Could not send data to client");
+					HandleClientMsg(i);
 			}
-		}
 	}
+}
+
+void Server::CheckSockets()
+{
+	dirtyFileDescs = cleanFileDescs; 
+	if (select(maxFileDesc+1, &dirtyFileDescs, NULL, NULL, NULL) == -1)
+		throw std::runtime_error(strerror(errno));
+}
+
+void Server::AcceptNewClient()
+{
+	int addressLength = sizeof(clientAddr);
+	if ((clientSocket = accept(listeningSocket, (struct sockaddr *)&clientAddr, (unsigned int*)&addressLength)) == -1) 
+		throw std::runtime_error("Could not accept new connection");
+
+	FD_SET(clientSocket, &cleanFileDescs);
+	if (clientSocket > maxFileDesc)
+		maxFileDesc = clientSocket;
+	std::cout << "[META]: new connection. Address: " << inet_ntoa(clientAddr.sin_addr) << "; Socket #" << clientSocket << std::endl;
+}
+
+void Server::HandleClientMsg(int clientSocket)
+{
+	int receivedBytes = recv(clientSocket, msgBuffer, sizeof(msgBuffer), 0);
+
+	if (receivedBytes < 0) 
+		throw std::runtime_error(strerror(errno));
+
+	if (receivedBytes > 0)
+	{
+		std::stringstream msg;
+		msg << clientSocket << ": " << msgBuffer;
+		std::cout << clientSocket << ": " << msgBuffer << std::endl;
+		for(int i = 0; i <= maxFileDesc; ++i)
+			if (FD_ISSET(i, &cleanFileDescs) && (i != listeningSocket && i != clientSocket) && (send(i, msg.str().c_str(), msg.str().length(), 0) == -1))
+				throw std::runtime_error("Could not send data to client");
+	}
+	else
+	{
+		std::cout << "[META]: Client disconnect. Socket #" << clientSocket << std::endl;
+		close(clientSocket);
+		FD_CLR(clientSocket, &cleanFileDescs);
+	}
+}
+
+Server::~Server()
+{
+	close(listeningSocket);
 }
 }
